@@ -1,0 +1,621 @@
+---
+title: "Gapminder: 200 Countries, 200 Years"
+subtitle: "Capstone project: BIDA 302"
+author: "<YOUR NAME HERE>"
+format: html
+---
+
+
+
+Package load:
+```{r setup}
+
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(gganimate)
+library(dplyr)
+library(gifski)
+library(grid)
+library(jpeg)
+library(leaflet)
+library(magick)
+library(rnaturalearth)
+library(sf)
+```
+
+
+```{r setwd}
+# Set your working directory to the folder containing the file
+setwd("D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/data")
+```
+
+## Introduction
+
+
+In this project, you will recreate three single year versions of the chart Hans Rosling shows in the video here:
+
+* Gapminder, [200 Countries, 200 Years, 4 Minutes](https://www.youtube.com/watch?v=jbkSRLYSojo)
+
+Choose a year at the beginning—say, 1810
+
+![life expectancy and wealth, 1810](Hans_1810.JPG)
+
+Then, a year in the middle—perhaps the year _you_ were born?
+
+![life expectancy and wealth, 1948](Hans_1948.JPG)
+
+And finally, the latest year in the data.
+
+![life expectancy and wealth, 2009](Hans_2009.JPG)
+
+
+### Importing Data files and basic data profiling
+
+```{r}
+# Set your working directory to the folder containing the file
+filepath <- "D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/data/"
+# Then read the file
+income_gdp_ppp <- read.csv(file.path(filepath,"income_per_person_gdppercapita_ppp_inflation_adjusted.csv"))
+
+# Renaming of column header names by removing the X part from the year column
+
+colnames(income_gdp_ppp) <- gsub("^X", "", colnames(income_gdp_ppp))
+head(income_gdp_ppp)
+
+print(income_gdp_ppp)
+
+
+
+# Life expectancy per year for 185 countries from 1801 to 2100
+
+life_expectancy_yr<-read.csv(file.path(filepath,"life_expectancy_years.csv"))
+# Performing the same step to remove the "X" part from the columns with pertains to year data
+
+
+colnames(life_expectancy_yr) <- gsub("^X", "", colnames(life_expectancy_yr))
+head(life_expectancy_yr)
+
+print(life_expectancy_yr)
+
+
+# Life expectancy per year for 185 countries from 1801 to 2100
+
+tot_population <- read.csv(file.path(filepath,"population_total.csv"))
+# Performing the same step to remove the "X" part from the columns with pertains to year data
+
+
+colnames(tot_population) <- gsub("^X", "", colnames(tot_population))
+head(tot_population)
+
+print(tot_population)
+
+
+#read the second sheet names "List of countries etc" for future  data visualization options
+
+list_of_countries_etc<- read_excel(file.path(filepath, "Data_Geographies_v1_by_Gapminder.xlsx"), sheet= "list-of-countries-etc")
+list_of_countries_etc
+
+
+
+geo_names <- read_excel(file.path(filepath, "Data_Geographies_v1_by_Gapminder.xlsx"), sheet= "geo-names")
+geo_names
+
+
+
+
+
+
+```
+
+
+
+
+The four files that you will need, downloaded from https://www.gapminder.org/data/, can be found in the "data" folder of this project.
+
+
+```{r data cleansing}
+
+life_expectancy_yr
+
+#
+
+for (col in colnames(life_expectancy_yr)[2:ncol(life_expectancy_yr)]) {
+  life_expectancy_yr[[col]][is.na(life_expectancy_yr[[col]])] <- mean(life_expectancy_yr[[col]], na.rm = TRUE)
+}
+
+life_expectancy_yr
+```
+
+
+
+
+```{r pivoting and merging data}
+
+
+
+income_pivot_longer <-income_gdp_ppp  |>
+  pivot_longer(cols=-country, names_to= "year", values_to="income")
+
+
+
+income_pivot_longer <- income_pivot_longer %>% mutate(year = as.numeric(year)) 
+income_pivot_longer
+
+
+income_filtered <- income_pivot_longer %>% filter(year <= 2018)
+income_filtered
+
+life_expectancy_longer <- life_expectancy_yr  |>
+  pivot_longer(cols=-country, names_to= "year", values_to="life_expectancy")
+
+
+life_expectancy_longer <- life_expectancy_longer %>% mutate(year = as.numeric(year)) 
+
+life_expectancy_longer
+
+
+
+population_longer <- tot_population |>
+  pivot_longer(cols=-country, names_to= "year", values_to="total_population")
+
+population_longer <- population_longer %>% mutate(year = as.numeric(year)) 
+population_longer
+
+
+population_filtered <- population_longer %>% filter(year <= 2018)
+population_filtered
+
+
+```
+``` {r}
+life_expectancy_col <- life_expectancy_longer[,c("country","year", colnames(life_expectancy_longer)[3])]
+income_gdp_col <- income_filtered[,c("country","year", colnames(income_pivot_longer)[3])]
+
+merged_gm_df <- population_filtered %>%
+  left_join(income_gdp_col, by = c("country","year")) %>%
+  left_join(life_expectancy_col, by = c("country","year"))
+merged_gm_df
+
+merged_gm_df_filter <- merged_gm_df %>%
+  filter(!is.na(income) & !is.na(life_expectancy))
+merged_gm_df_filter         
+merged_gm_df_cleaned <- na.omit(merged_gm_df_filter)
+merged_gm_df_cleaned$year <- as.integer(merged_gm_df_cleaned$year) 
+
+```
+
+
+```{r}
+# Creating bubble chart graphical representation in a basic way without the transition of years where how  the life expectancy shapes over 1800 to 2018 for the world
+
+gm_plot_anim <- ggplot(merged_gm_df_cleaned, aes(x=income, y=life_expectancy, size= total_population, color= country ))+
+  geom_point(alpha =0.7, show.legend = FALSE)
+gm_plot_anim
+```  
+
+```{r}
+
+# Background image for gif data visulization representation enhancement where  we are using back_1 as the background image jpg for the visulization aspect 
+
+background_img <-  rasterGrob(jpeg::readJPEG("back_1.jpg"),width= unit(1, "npc") , height= unit(1, "npc"))
+
+
+
+# Creating bubble chart graphical representation
+
+gm_plot_anim <- ggplot(merged_gm_df_cleaned, aes(x=income, y=life_expectancy, size= total_population/10000000, color= country ))+
+  annotation_custom(background_img, -Inf, Inf, -Inf, Inf)+
+  geom_point(alpha =0.7, show.legend = FALSE)+
+  scale_y_continuous(breaks=c(0, 25, 50, 75),limits = c(0, max(merged_gm_df_cleaned$life_expectancy, na.rm = TRUE)))+
+  scale_x_log10(breaks = c(400, 4000, 40000), limits = c(min(merged_gm_df_cleaned$income[merged_gm_df_cleaned$income > 0], na.rm = TRUE), max(merged_gm_df_cleaned$income, na.rm = TRUE)))+
+  theme(plot.title= element_text(hjust =0.5), # this is for centering the title properly 
+        panel.background = element_rect(fill = "transparent"), # This [arameter is passed in the theme to make background more transparent and clear
+        panel.grid.major = element_line(color = 'grey80', size= 0.5), 
+        panel.grid.minor=  element_line(color = "grey90", size= 0.25))+
+  labs(x= "Income", y="Life Expectancy", title="Year: {frame_time}")+
+  transition_time(year)+
+  ease_aes('linear')
+
+#Animating the plot
+animation <- animate(gm_plot_anim, nframes= length(unique(merged_gm_df$year)), fps =5,  renderer = gifski_renderer()) 
+
+#Save the animation  with the dyunction called anim_save from gg animate library
+
+gganimate::anim_save("bubble_chart.gif", animation)
+
+```
+```{r}
+library(gapminder)
+gapminder
+
+```
+
+```{r}
+##Merge main table
+
+# In this code chunck, we ae are renaming some columns to achieve data consistency which enables in the next steps to pferm join and other merging of data without warnings.
+list_of_countries <- list_of_countries_etc %>%
+  rename("continents"= "four_regions", "country"= "name") %>%
+  select(country, continents, Latitude, Longitude)
+list_of_countries
+
+
+merge_data <- merge(list_of_countries, merged_gm_df_cleaned, by = "country")
+merge_data 
+
+
+# Renaming and selection of the columns in the order which need to be placed for better data representation and aesthetics
+merge_data_filter <- merge_data %>%
+ rename("latitude"="Latitude", "longitude"="Longitude") %>%
+ select(continents, country, year, latitude, longitude, income, life_expectancy, total_population)
+merge_data_filter
+
+# This below code is to conver the descritoon table int o a tibble
+merge_data_filter_tb <- as.tibble(merge_data_filter)
+
+# Here we are converting all the necessary field such as latitude, logngitude and total population values into numeric by as.numeric fucntion for performing data visulization further 
+# coneverting numeric for longitude field
+merge_data_filter_tb$longitude <- as.numeric(merge_data_filter_tb$longitude)
+# coneverting numeric for latitude field
+merge_data_filter_tb$latitude <- as.numeric(merge_data_filter_tb$latitude)
+# coneverting numeric for total_population field
+merge_data_filter_tb$total_population <- as.numeric(merge_data_filter_tb$total_population)
+
+# tibble of merged data which contains all the paramiters including the continent  country  its gis location 
+merge_data_filter_tb
+```
+
+
+```{r}
+
+## This Gif animation is  to generate a face of different continents how they grow their life expectancy when opposed to income GDP per parts per parity
+# background image for gif presentation enhancement
+background_img1 <-  rasterGrob(jpeg::readJPEG("back_2.jpg"),width= unit(2, "npc") , height= unit(1, "npc"))
+
+
+
+# Creating bubble chart graphical representation
+
+gm_plot_anim2 <- ggplot(merge_data_filter_tb, aes(x=income, y=life_expectancy, size= total_population/10000000, color= country, group= continents ))+
+  annotation_custom(background_img1, -Inf, Inf, -Inf, Inf)+
+  geom_point(alpha =0.6, show.legend = FALSE)+
+  scale_y_continuous(breaks=c(0, 25, 50, 75),limits = c(0, max(merged_gm_df_cleaned$life_expectancy, na.rm = TRUE)))+
+  scale_x_log10(breaks = c(400, 4000, 40000), limits = c(min(merge_data_filter_tb$income[merge_data_filter_tb$income > 0], na.rm = TRUE), max(merge_data_filter_tb$income, na.rm = TRUE)))+
+  facet_wrap(~continents)+ # We are faceting the by continents
+  theme_classic()+
+  labs(x= "Income", y="Life Expectancy", title="Year: {frame_time}")+
+  transition_time(year)+
+  ease_aes('linear')
+
+#Animating the plot
+animation2 <- animate(gm_plot_anim2, nframes= length(unique(merge_data_filter_tb$year)), fps =4,  renderer = gifski_renderer()) 
+#animation
+#Save the animation 
+
+gganimate::anim_save("bubble_chart_continents.gif", animation2)
+
+```
+
+
+
+
+
+There are CSV files in the "data" folder, for the following:
+
+* Income: "income_per_person_gdppercapita_ppp_inflation_adjusted.csv"
+
+* Life expectancy (years): "life_expectancy_years.csv"
+
+* Population: "population_total.csv"
+
+In addition, there is an Excel file that you'll need to use to get the region (continent) that each country is in. 
+
+* "Data Geographies - v1 - by Gapminder.xlsx", sheet = "list-of-countries-etc"
+
+```{r}
+# Loading of the world map data
+
+world_map <- ne_countries(scale= "medium", returnclass= "sf")
+
+
+
+
+gm_plot_world_anim <- ggplot()+
+  geom_sf(data= world_map, fill= "lightblue", color= "white")+
+  geom_point(data= merge_data_filter_tb, aes(x= longitude, y= latitude, size= total_population/10000000, color= continents),alpha =0.7)+
+  scale_size_continuous(range = c(2,15))+
+  theme_minimal()+
+  labs(x="Longitude", y="Latitude", title= "Global Population Distribution over Time: {frame_time}")+
+  theme(plot.title= element_text(hjust= 0.5), plot.background =  element_rect(fill= "transparent", color= NA))+
+  transition_time(year)+
+  ease_aes("linear")
+
+#
+
+animation3 <- animate(gm_plot_world_anim, nframes= length(unique(merge_data_filter_tb$year)), fps =6,  renderer = gifski_renderer()) 
+#animation
+#Save the animation 
+
+gganimate::anim_save("World_Map_Animation.gif", animation3)
+
+```
+### Going beyond
+
+Part of what makes Hans Rosling's presentations so compelling is the animation of the data visualization. Here are some links to resources for you to create an animated plot in R, using the package {gganimate}.
+
+Blog post by Tristan Ganry, [How to build Animated Charts like Hans Rosling — doing it all in R](https://towardsdatascience.com/how-to-build-animated-charts-like-hans-rosling-doing-it-all-in-r-570efc6ba382)
+
+[{gganimate} reference page](https://gganimate.com/)
+
+[Visualization in R](https://remi-daigle.github.io/2016-04-15-UCSB/viz/)
+
+[_Introduction to Data Science_: Chapter 9, Data visualization in practice](https://rafalab.github.io/dsbook/gapminder.html)
+
+```{r}
+
+# folder path
+
+# Specify the folder path in D drive
+folder_path <- "D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/Output/"
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path, recursive = TRUE)
+}
+# Prepare data for animation
+merge_data_filter_tb
+
+# Convert income to units of 10,000 dollars
+data <- merge_data_filter_tb %>%
+  mutate(income_ten_thousand = income)  # Convert income to units of 10,000 dollars
+
+# Calculate top 10 countries by income for each year and dynamically change the ranking
+top10_per_year <- data %>%
+  group_by(year) %>%
+  arrange(desc(income_ten_thousand)) %>%
+  mutate(rank = row_number()) %>%
+  filter(rank <= 10) %>%
+  ungroup()
+
+# Create animated bar chart for income in units of 10,000 dollars
+top_10_income <- ggplot(top10_per_year, aes(x = reorder(country, -income_ten_thousand), y = income_ten_thousand, fill = country)) +
+  geom_bar(stat = "identity") +
+  labs(title = 'Income Over Time: {frame_time}', y = 'Income (in 10,000 dollars)', x = 'Country', subtitle = 'Year: {frame_time}') +
+  coord_flip() +  # Flip coordinates to have countries on y-axis
+  transition_time(year) +
+  ease_aes('sine-in-out') +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+#Animating the plot
+animation2 <- animate(top_10_income, nframes= length(unique(merged_gm_df$year)), fps =8,  renderer = gifski_renderer()) 
+
+# Save as gif
+anim_save(filename = file.path (folder_path,"Top10_income_animation.gif"), animation= animation2) 
+
+  
+```
+
+```{r}
+merge_data_filter_tb
+
+
+library(gganimate)
+library(gifski)
+
+# Prepare the data for animation
+top10_per_year <- merge_data_filter_tb %>%
+  group_by(year) %>%
+  arrange(desc(income_ten_thousand)) %>%
+  mutate(rank = row_number()) %>%
+  filter(rank <= 10) %>%
+  ungroup() %>%
+  arrange(year, desc(income_ten_thousand))  # Ensure the order is consistent for each frame
+
+# Create animated bar chart for income in units of 10,000 dollars
+p <- ggplot(top10_per_year, aes(x = reorder(country, desc(-income_ten_thousand)), y = income_ten_thousand, fill = country)) +
+  geom_bar(stat = "identity") +
+  labs(title = 'Income Over Time', y = 'Income (in 10,000 dollars)', x = 'Country', subtitle = 'Year: {frame_time}') +
+  coord_flip() +  # Flip coordinates to have countries on y-axis
+  transition_time(year) +
+  ease_aes('sine-in-out') +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+#Animating the plot
+animation3 <- animate(top_10_income_new, nframes= length(unique(merged_gm_df$year)), fps =8,  renderer = gifski_renderer()) 
+
+
+# Save the animation as a GIF with 5 fps
+anim_save("top10_income_animation.gif", animation3)
+
+
+```
+
+## Two code chucks below needed to be run seperately  but together which creates a folder with all the jpeg images and the gif image with bar chart of where the top 10 countries data of each year from 1800 to 2018 will be trasitioning dynamically changing flawlessly in the animation.
+```{r}
+
+
+# Convert income to units of 10,000 dollars
+data <- merge_data_filter_tb %>%
+  mutate(income_ten_thousand = income )  # Convert income to units of 10,000 dollars
+
+# Create a directory to save the JPG files
+dir.create("D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/top10_income", showWarnings = FALSE)
+
+# Ensure 'year' is a vector
+unique_years <- unique(data$year)
+
+# Loop through each year and generate plots
+for (year in unique_years) {
+  # Filter top 10 countries by income for the current year
+  top10_for_year <- data %>%
+    filter(year == !!year) %>%
+    arrange(desc(income_ten_thousand)) %>%
+    slice(1:10)
+
+  
+  
+
+  # Create plot
+  gm_income_plot_anim <- ggplot(top10_for_year, aes(x = reorder( country, desc(-income_ten_thousand)), y = income_ten_thousand, fill = country)) +
+    geom_bar(stat = "identity") +
+    labs(title = paste('Top 10 Countries by Income in', year), y = 'Income (in 10,000 dollars)', x = 'Country') +
+    coord_flip() +
+    theme_minimal() +
+    theme(legend.position = "none") +
+    geom_text(aes(label = round(income_ten_thousand, 2)), hjust = -0.2)
+
+  # Save plot as JPG
+  ggsave(filename = paste0("D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/top10_income/top10_income_", year, ".jpg"), plot = gm_income_plot_anim, width = 10, height = 8)
+}
+
+
+
+
+```
+
+```{r}
+# Set the folder path
+folder_path <- "D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/top10_income/"
+
+
+# List all JPEG files in the folder
+image_files <- list.files(folder_path, pattern = "*.jpg", full.names = TRUE)
+
+# Read and resize the images
+images <- lapply(image_files, function(x) {
+  image <- image_read(x)
+  image_resize(image, "800x800")  # Resize images to 800x800 for efficiency
+})
+images <- image_join(images)
+
+# Create the GIF
+animated_gif <- image_animate(images, fps = 4)  # Set frames per second as 5
+
+# Save the GIF
+image_write(animated_gif, path = "D:/Vivek/UVIC/BIDA 302/FINAL PROJECT/capstone_01_gapminder_200_countries (4)/top10_income/animated_images_income.gif")
+
+
+
+
+```
+
+
+
+
+```{r}
+
+
+# Function to create the animated boxplot for top 10 countries for each year
+animate_boxplot <- function(merge_data_filter_tb) {
+  # Filter the top 10 countries by life expectancy for each year
+  top10 <- merge_data_filter_tb %>%
+    group_by(year) %>%
+    top_n(10, wt = life_expectancy) %>%
+    ungroup()
+# Ensure 'year' is a vector
+unique_years <- unique(data$year)
+
+  # Loop through each year and generate plots
+for (year in unique_years) {
+  # Filter top 10 countries by income for the current year
+  top10_for_year <- data %>%
+    filter(year == !!year) %>%
+    arrange(desc(income_ten_thousand)) %>%
+    slice(1:10)
+
+  
+  
+  # Boxplot
+   box_plot_anim<- ggplot(top10, aes(x = factor(year), y = life_expectancy)) +
+    geom_boxplot() +
+    labs(title = "Life Expectancy of Top 10 Countries per Year : {frame_time}",
+         x = "Year",
+         y = "Life Expectancy from 1800") +
+    theme_classic()
+  
+  # Animate
+  anim <- box_plot_anim +  transition_states(year, transition_length = 1, state_length = 1) +
+    labs(title = 'Year: {closest_state}')
+  
+  animate(anim, renderer = gifski_renderer())
+}
+
+# Use the function with your data
+animate_boxplot(merge_data_filter_tb)
+
+```
+
+
+
+
+```{r Scatter plot}
+# Function to create the animated scatter plot
+animate_scatter_plot <- function(merge_data_filter_tb) {
+  # Scatter plot
+  gm_plot_scatter <- ggplot(data, aes(x = income, y = life_expectancy, color = country)) +
+    geom_point(size = 3) +
+    labs(title = "Life Expectancy vs Income",
+         x = "Income",
+         y = "Life Expectancy") +
+    theme_minimal()
+  
+  # Animate
+  anim2 <- gm_plot_scatter + transition_states(year, transition_length = 2, state_length = 1) +
+    labs(title = 'Year: {closest_state}') +
+    ease_aes('linear')
+  
+  animate(anim2, renderer = gifski_renderer("animated_scatter_plot.gif"))
+}
+
+# Use the function with your data
+animate_scatter_plot(merge_data_filter_tb)
+
+```
+
+
+
+```{r heat map}
+gm_df <- data.frame(merge_data_filter_tb)
+# Ensure all values are finite
+gm_df_finite <- gm_df %>%
+  filter(is.finite(income) & is.finite(life_expectancy))
+# Function to create the animated heat map for top 10 countries by year
+animate_heatmap <- function(gm_df_finite) {
+  top10_each_year <- list()
+  
+  # Loop through each year and filter top 10 countries
+  for (year in unique(gm_df_finite$year)) {
+    top10 <- data %>%
+      filter(year == !!year) %>%
+      slice_max(life_expectancy, n = 10)
+    top10_each_year[[as.character(year)]] <- top10
+  }
+  
+  top10_data <- do.call(rbind, top10_each_year)
+  
+  # Heat map
+  gm_heat <- ggplot(top10_data, aes(x = income, y = life_expectancy, fill = life_expectancy)) +
+    geom_tile() +
+    scale_fill_gradient(low = "blue", high = "red") +
+    labs(title = "Heat Map of Income vs Life Expectancy",
+         x = "Income",
+         y = "Life Expectancy",
+         fill = "Life Expectancy") +
+    theme_classic()
+  
+  # Animate
+  anim3 <- gm_heat + transition_reveal(year) +
+    labs(title = 'Year: {frame_along}') +
+    ease_aes('linear') +
+    enter_fade() +
+    exit_fade() +
+    transition_time(unique(gm_df_finite$year)) +
+    shadow_mark(alpha = 0.5)
+  
+  animate(anim3, nframes = length(unique(gm_df_finite$year)) * 2, fps = 2, renderer = gifski_renderer("animated_heatmap.gif"))
+}
+
+# Use the function with your data
+animate_heatmap(merge_data_filter_tb)
+```
